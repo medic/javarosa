@@ -203,4 +203,12 @@ public class GeoPointData implements IAnswerData, IExprDataType {
 		return getDisplayText();
 	}
 
+
+  public double getPart(int i) {
+    if (i < len) {
+      return gp[i];
+    } else {
+      throw new ArrayIndexOutOfBoundsException("Cannot find coordinates part with index " + i);
+    }
+  }
 }
