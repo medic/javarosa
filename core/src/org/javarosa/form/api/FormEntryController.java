@@ -55,7 +55,7 @@ public class FormEntryController {
         return model;
     }
 
-
+    
     /**
      * Attempts to save answer at the current FormIndex into the datamodel.
      *

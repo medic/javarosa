@@ -19,6 +19,7 @@ package org.javarosa.core.model.condition;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Vector;
 
 import org.javarosa.core.model.FormDef;
@@ -49,23 +50,17 @@ public class Condition extends Triggerable {
 	}
 
 	public Condition (IConditionExpr expr, int trueAction, int falseAction, TreeReference contextRef) {
-		this(expr, trueAction, falseAction, contextRef, new Vector(0));
+		this(expr, trueAction, falseAction, contextRef, new ArrayList<TreeReference>(0));
 	}
 
-	public Condition (IConditionExpr expr, int trueAction, int falseAction, TreeReference contextRef, Vector targets) {
-		super(expr, contextRef);
+	public Condition (IConditionExpr expr, int trueAction, int falseAction, TreeReference contextRef, ArrayList<TreeReference> targets) {
+		super(expr, contextRef, targets);
 		this.trueAction = trueAction;
 		this.falseAction = falseAction;
-		this.targets = targets;
 	}
 
 	public Object eval (FormInstance model, EvaluationContext evalContext) {
-		try {
-			return new Boolean(expr.eval(model, evalContext));
-		} catch(XPathException e) {
-			e.setSource("Relevant expression for " + contextRef.toString(true));
-			throw e;
-		}
+		return evalPredicate(model, evalContext);
 	}
 
 	public boolean evalBool (FormInstance model, EvaluationContext evalContext) {

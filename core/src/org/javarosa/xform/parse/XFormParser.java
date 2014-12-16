@@ -16,9 +16,36 @@
 
 package org.javarosa.xform.parse;
 
-import org.javarosa.core.model.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Stack;
+import java.util.Vector;
+
+import org.javarosa.core.model.Action;
+import org.javarosa.core.model.Constants;
+import org.javarosa.core.model.DataBinding;
+import org.javarosa.core.model.FormDef;
+import org.javarosa.core.model.FormDef.EvalBehavior;
+import org.javarosa.core.model.FormDef.QuickTriggerable;
+import org.javarosa.core.model.GroupDef;
+import org.javarosa.core.model.IDataReference;
+import org.javarosa.core.model.IFormElement;
+import org.javarosa.core.model.ItemsetBinding;
+import org.javarosa.core.model.QuestionDef;
+import org.javarosa.core.model.SelectChoice;
+import org.javarosa.core.model.SubmissionProfile;
 import org.javarosa.core.model.actions.SetValueAction;
-import org.javarosa.core.model.condition.*;
+import org.javarosa.core.model.condition.Condition;
+import org.javarosa.core.model.condition.Constraint;
+import org.javarosa.core.model.condition.EvaluationContext;
+import org.javarosa.core.model.condition.Recalculate;
+import org.javarosa.core.model.condition.Triggerable;
 import org.javarosa.core.model.instance.FormInstance;
 import org.javarosa.core.model.instance.InvalidReferenceException;
 import org.javarosa.core.model.instance.TreeElement;
@@ -50,11 +77,6 @@ import org.kxml2.kdom.Element;
 import org.kxml2.kdom.Node;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
-
-import java.io.*;
-import java.util.HashMap;
-import java.util.Stack;
-import java.util.Vector;
 
 /* droos: i think we need to start storing the contents of the <bind>s in the formdef again */
 
@@ -289,7 +311,7 @@ public class XFormParser {
 		this.reporter = reporter;
 	}
 
-	public FormDef parse() throws IOException {
+	public FormDef parse(EvalBehavior mode) throws IOException {
 		if (_f == null) {
 			System.out.println("Parsing form...");
 
@@ -297,7 +319,7 @@ public class XFormParser {
 				_xmldoc = getXMLDocument(_reader, stringCache);
 			}
 
-			parseDoc();
+			parseDoc(mode);
 
 			//load in a custom xml instance, if applicable
 			if (_instReader != null) {
@@ -404,8 +426,8 @@ public class XFormParser {
 		return doc;
 	}
 
-	private void parseDoc() {
-		_f = new FormDef();
+	private void parseDoc(EvalBehavior mode) {
+		_f = new FormDef(mode);
 
 		initState();
 		defaultNamespace = _xmldoc.getRootElement().getNamespaceUri(null);
@@ -2557,46 +2579,45 @@ public class XFormParser {
 	}
 
 	private void checkDependencyCycles () {
-		Vector<TreeReference> vertices = new Vector<TreeReference>();
-		Vector<TreeReference[]> edges = new Vector<TreeReference[]>();
+		HashSet<TreeReference> vertices = new HashSet<TreeReference>();
+		ArrayList<TreeReference[]> edges = new ArrayList<TreeReference[]>();
 
 		//build graph
-    for (TreeReference trigger : _f.triggerIndex.keySet()) {
+      ArrayList<TreeReference> targets = new ArrayList<TreeReference>();
+      for (TreeReference trigger : _f.triggerIndex.keySet()) {
 			if (!vertices.contains(trigger))
-				vertices.addElement(trigger);
-
-			Vector<Triggerable> triggered = _f.triggerIndex.get(trigger);
-			Vector<TreeReference> targets = new Vector<TreeReference>();
-			for (int i = 0; i < triggered.size(); i++) {
-				Triggerable t = (Triggerable)triggered.elementAt(i);
+				vertices.add(trigger);
+			HashSet<QuickTriggerable> triggered = _f.triggerIndex.get(trigger);
+			targets.clear();
+			for (QuickTriggerable qt : triggered ) {
+				Triggerable t = qt.t;
 				for (int j = 0; j < t.getTargets().size(); j++) {
-					TreeReference target = t.getTargets().elementAt(j);
+					TreeReference target = t.getTargets().get(j);
 					if (!targets.contains(target))
-						targets.addElement(target);
+						targets.add(target);
 				}
 			}
 
 			for (int i = 0; i < targets.size(); i++) {
-				TreeReference target = targets.elementAt(i);
+				TreeReference target = targets.get(i);
 				if (!vertices.contains(target))
-					vertices.addElement(target);
+					vertices.add(target);
 
 				TreeReference[] edge = {trigger, target};
-				edges.addElement(edge);
+				edges.add(edge);
 			}
 		}
 
 		//find cycles
 		boolean acyclic = true;
+      HashSet<TreeReference> leaves = new HashSet<TreeReference>(vertices.size());
 		while (vertices.size() > 0) {
 			//determine leaf nodes
-			Vector leaves = new Vector(vertices.size());
-			for (int i = 0; i < vertices.size(); i++) {
-				leaves.addElement(vertices.elementAt(i));
-			}
+		   leaves.clear();
+ 		   leaves.addAll(vertices);
 			for (int i = 0; i < edges.size(); i++) {
-				TreeReference[] edge = (TreeReference[])edges.elementAt(i);
-				leaves.removeElement(edge[0]);
+				TreeReference[] edge = (TreeReference[])edges.get(i);
+				leaves.remove(edge[0]);
 			}
 
 			//if no leaf nodes while graph still has nodes, graph has cycles
@@ -2606,14 +2627,13 @@ public class XFormParser {
 			}
 
 			//remove leaf nodes and edges pointing to them
-			for (int i = 0; i < leaves.size(); i++) {
-				TreeReference leaf = (TreeReference)leaves.elementAt(i);
-				vertices.removeElement(leaf);
+			for (TreeReference leaf : leaves ) {
+				vertices.remove(leaf);
 			}
 			for (int i = edges.size() - 1; i >= 0; i--) {
-				TreeReference[] edge = (TreeReference[])edges.elementAt(i);
+				TreeReference[] edge = (TreeReference[])edges.get(i);
 				if (leaves.contains(edge[1]))
-					edges.removeElementAt(i);
+					edges.remove(i);
 			}
 		}
 
@@ -2621,7 +2641,7 @@ public class XFormParser {
 			StringBuilder b = new StringBuilder();
 			b.append("XPath Dependency Cycle:\n");
 			for (int i = 0; i < edges.size(); i++) {
-				TreeReference[] edge = (TreeReference[])edges.elementAt(i);
+				TreeReference[] edge = edges.get(i);
 				b.append(edge[0].toString()).append(" => ").append(edge[1].toString()).append("\n");
 			}
 			reporter.error(b.toString());
