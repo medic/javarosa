@@ -35,6 +35,7 @@ import org.javarosa.core.util.externalizable.ExtWrapList;
 import org.javarosa.core.util.externalizable.ExtWrapTagged;
 import org.javarosa.core.util.externalizable.Externalizable;
 import org.javarosa.core.util.externalizable.PrototypeFactory;
+import org.javarosa.debug.EvaluationResult;
 import org.javarosa.xpath.XPathException;
 
 /**
@@ -138,7 +139,7 @@ public abstract class Triggerable implements Externalizable {
 	/**
 	 * Not for re-implementation, dispatches all of the evaluation
 	 * @param instance
-	 * @param evalContext
+	 * @param parentContext
 	 * @param f
 	 */
 	public final void apply (FormInstance mainInstance, EvaluationContext parentContext, TreeReference context) {
@@ -149,14 +150,20 @@ public abstract class Triggerable implements Externalizable {
 
 		Object result = eval(mainInstance, ec);
 
-		for (int i = 0; i < targets.size(); i++) {
+		List<EvaluationResult> affectedNodes = new ArrayList<EvaluationResult>(0);
 			TreeReference targetRef = targets.get(i).contextualize(ec.getContextRef());
-         List<TreeReference> v = ec.expandReference(targetRef);
-			for (int j = 0; j < v.size(); j++) {
-				TreeReference affectedRef = v.get(j);
+		for (TreeReference target : targets) {
+			TreeReference targetRef = target.contextualize(ec.getContextRef());
+			List<TreeReference> v = ec.expandReference(targetRef);
+
+			for (TreeReference affectedRef : v) {
 				apply(affectedRef, result, mainInstance);
+
+				affectedNodes.add(new EvaluationResult(affectedRef, result));
 			}
 		}
+
+		return affectedNodes;
 	}
 
 	public IConditionExpr getExpr() {
@@ -297,5 +304,31 @@ public abstract class Triggerable implements Externalizable {
 			w.write("   targets[" + Integer.toString(j) + "] :"
 					+ r.toString(true) + "\n");
 		}
+	}
+
+	/**
+	 * Searches in the triggers of this Triggerables, trying to find one that is
+	 * contained in the given list of contextualized refs. If multiple are found then it returns the one
+	 * which is higher in the form tree.
+	 *
+	 * @param firedAnchors a list of absolute refs
+	 * @return the higher-in-the-form element of the given list that matches in the list of triggers of this Triggerable.
+	 */
+	public TreeReference findAffectedTrigger(List<TreeReference> firedAnchors) {
+		TreeReference affectedTrigger = null;
+
+		Set<TreeReference> triggers = this.getTriggers();
+		for (TreeReference trigger : triggers) {
+			for (TreeReference firedAnchor : firedAnchors) {
+				TreeReference genericizedFiredAnchor = firedAnchor.genericize();
+				if (genericizedFiredAnchor.equals(trigger)) {
+					if (affectedTrigger == null || genericizedFiredAnchor.isParentOf(affectedTrigger, false)) {
+						affectedTrigger = firedAnchor;
+					}
+				}
+			}
+		}
+
+		return affectedTrigger;
 	}
 }
