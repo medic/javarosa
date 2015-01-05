@@ -22,10 +22,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 import org.javarosa.core.model.FormDef.EvalBehavior;
 import org.javarosa.core.model.condition.Condition;
@@ -36,6 +33,7 @@ import org.javarosa.core.model.condition.Triggerable;
 import org.javarosa.core.model.instance.FormInstance;
 import org.javarosa.core.model.instance.TreeElement;
 import org.javarosa.core.model.instance.TreeReference;
+import org.javarosa.debug.Event;
 import org.javarosa.debug.EventNotifier;
 import org.javarosa.form.api.FormEntryController;
 import org.javarosa.model.xform.XPathReference;
@@ -109,11 +107,11 @@ public abstract class IDag {
 	 * @param mainInstance
 	 * @param evalContext
 	 * @param ref
-	 * @param cascadeToGroupChildren
+	 * @param midSurvey
 	 */
-	public abstract void triggerTriggerables(FormInstance mainInstance,
+	public abstract Collection<QuickTriggerable> triggerTriggerables(FormInstance mainInstance,
 			EvaluationContext evalContext, TreeReference ref,
-			boolean cascadeToGroupChildren);
+			boolean midSurvey);
 
 	/**
 	 * Take whatever action is required when deleting a repeat group.
@@ -149,11 +147,11 @@ public abstract class IDag {
 	 * @param evalContext
 	 * @param ref
 	 * @param copyToElement
-	 * @param cascadeToGroupChildren
+	 * @param midSurvey
 	 */
 	public abstract void copyItemsetAnswer(FormInstance mainInstance,
 			EvaluationContext evalContext, TreeReference ref,
-			TreeElement copyToElement, boolean cascadeToGroupChildren);
+			TreeElement copyToElement, boolean midSurvey);
 
 	/**
 	 * Add the triggerables to the dataset prior to finalizing.
@@ -173,8 +171,6 @@ public abstract class IDag {
    /**
     * Add the triggerables to the dataset prior to finalizing.
     * 
-    * @param mainInstance
-    * @param evalContext
     * @param t
     */
    public final Triggerable addTriggerable(Triggerable t) {
@@ -227,8 +223,6 @@ public abstract class IDag {
 	 * 
 	 * @param mainInstance
 	 * @param evalContext
-	 * @param unorderedTriggereables
-	 * @param triggerIndex
 	 * @throws IllegalStateException
 	 */
 	public abstract void finalizeTriggerables(FormInstance mainInstance,
@@ -243,11 +237,11 @@ public abstract class IDag {
 	 * @param mainInstance
 	 * @param evalContext
 	 * @param rootRef
-	 * @param cascadeToGroupChildren
+	 * @param midSurvey true if we are during the survey, false if we are on loading/saving phase
 	 */
-	public abstract void initializeTriggerables(FormInstance mainInstance,
+	public abstract Collection<QuickTriggerable> initializeTriggerables(FormInstance mainInstance,
 			EvaluationContext evalContext, TreeReference rootRef,
-			boolean cascadeToGroupChildren);
+			boolean midSurvey);
 	
 	/**
 	 * Invoked to validate a filled-in form. Sweeps through from beginning
@@ -259,23 +253,57 @@ public abstract class IDag {
 	 * @param markCompleted
 	 * @return
 	 */
-   public abstract ValidateOutcome validate(FormEntryController formEntryControllerToBeValidated, boolean markCompleted);
-   
+   public ValidateOutcome validate(FormEntryController formEntryControllerToBeValidated, boolean markCompleted) {
 
-	protected final void publishSummary(String lead,
-			Set<QuickTriggerable> quickTriggerables) {
-		System.out.println(lead + ": " + quickTriggerables.size()
-				+ " triggerables were fired.");
-	}
+      formEntryControllerToBeValidated.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+
+      int event;
+      while ((event =
+              formEntryControllerToBeValidated.stepToNextEvent()) != FormEntryController.EVENT_END_OF_FORM) {
+         if (event != FormEntryController.EVENT_QUESTION) {
+            continue;
+         } else {
+            FormIndex formControllerToBeValidatedFormIndex = formEntryControllerToBeValidated.getModel().getFormIndex();
+
+            int saveStatus =
+                    formEntryControllerToBeValidated.answerQuestion(formControllerToBeValidatedFormIndex,
+                            formEntryControllerToBeValidated.getModel().getQuestionPrompt().getAnswerValue(), false);
+            if (markCompleted && saveStatus != FormEntryController.ANSWER_OK) {
+               // jump to the error
+               ValidateOutcome vo = new ValidateOutcome(formControllerToBeValidatedFormIndex,
+                       saveStatus);
+               return vo;
+            }
+         }
+      }
+      return null;
+   }
+
+   /**
+    * Specifies if unchanged answers should be trusted (and not re-committed).
+    *
+    * @return
+    */
+   public abstract boolean shouldTrustPreviouslyCommittedAnswer();
+
+   protected void publishSummary(String lead, Collection<QuickTriggerable> quickTriggerables) {
+      publishSummary(lead, null, quickTriggerables);
+   }
+
+   protected final void publishSummary(String lead,
+                                 TreeReference ref,
+                                 Collection<QuickTriggerable> quickTriggerables) {
+      accessor.getEventNotifier().publishEvent(new Event(lead + ": " + (ref != null ? ref.toShortString() + ": " : "") + quickTriggerables.size() + " triggerables were fired."));
+   }
 
 	/**
-	 * For debugging - note that path assumes Android device
+	 * For debugging
 	 */
-	public final void printTriggerables() {
+	public final void printTriggerables(String path) {
 		OutputStreamWriter w = null;
 		try {
 			w = new OutputStreamWriter(new FileOutputStream(new File(
-					"/sdcard/odk/trigger.log")), "UTF-8");
+					path)), "UTF-8");
 			for (int i = 0; i < triggerablesDAG.size(); i++) {
 				QuickTriggerable qt = triggerablesDAG.get(i);
 				w.write(Integer.toString(i) + ": ");
@@ -320,7 +348,7 @@ public abstract class IDag {
 				Condition c = (Condition) qt.t;
 
 				if (c.trueAction == action) {
-					ArrayList<TreeReference> targets = c.getTargets();
+					List<TreeReference> targets = c.getTargets();
 					for (int j = 0; j < targets.size() && expr == null; j++) {
 						TreeReference target = targets.get(j);
 

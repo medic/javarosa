@@ -16,10 +16,8 @@
 
 package org.javarosa.core.model;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
-import org.javarosa.core.log.WrappedException;
 import org.javarosa.core.model.FormDef.EvalBehavior;
 import org.javarosa.core.model.condition.Condition;
 import org.javarosa.core.model.condition.EvaluationContext;
@@ -27,7 +25,6 @@ import org.javarosa.core.model.condition.Triggerable;
 import org.javarosa.core.model.instance.FormInstance;
 import org.javarosa.core.model.instance.TreeElement;
 import org.javarosa.core.model.instance.TreeReference;
-import org.javarosa.form.api.FormEntryController;
 
 /**
  * The legacy eval logic on or before javarosa-2013-09-30.jar
@@ -77,14 +74,14 @@ public class LegacyDagImpl extends IDag {
 	@Override
 	public void copyItemsetAnswer(FormInstance mainInstance,
 			EvaluationContext evalContext, TreeReference copyRef,
-			TreeElement copyToElement, boolean cascadeToGroupChildren) {
+			TreeElement copyToElement, boolean midSurvey) {
 
 		// trigger conditions that depend on the creation of this new node
 		triggerTriggerables(mainInstance, evalContext, copyRef,
-				cascadeToGroupChildren);
+				  midSurvey);
 		// initialize conditions for the node (and sub-nodes)
 		initializeTriggerables(mainInstance, evalContext, copyRef,
-				cascadeToGroupChildren);
+				  midSurvey);
 		// not 100% sure this will work since destRef is ambiguous as the last
 		// step, but i think it's supposed to work
 	}
@@ -179,12 +176,10 @@ public class LegacyDagImpl extends IDag {
 		//
 
 		conditionRepeatTargetIndex.clear();
-		for (int i = 0; i < triggerablesDAG.size(); i++) {
-			QuickTriggerable qt = triggerablesDAG.get(i);
+		for (QuickTriggerable qt : triggerablesDAG) {
 			if (qt.t instanceof Condition) {
-				ArrayList<TreeReference> targets = qt.t.getTargets();
-				for (int j = 0; j < targets.size(); j++) {
-					TreeReference target = targets.get(j);
+				List<TreeReference> targets = qt.t.getTargets();
+				for (TreeReference target : targets) {
 					if (mainInstance.getTemplate(target) != null) {
 						conditionRepeatTargetIndex.put(target, qt);
 					}
@@ -201,9 +196,9 @@ public class LegacyDagImpl extends IDag {
 	 */
 
 	@Override
-	public void initializeTriggerables(FormInstance mainInstance,
+	public Collection<QuickTriggerable> initializeTriggerables(FormInstance mainInstance,
 			EvaluationContext evalContext, TreeReference rootRef,
-			boolean cascadeToGroupChildren) {
+			boolean midSurvey) {
 		TreeReference genericRoot = rootRef.genericize();
 
 		ArrayList<QuickTriggerable> applicable = new ArrayList<QuickTriggerable>();
@@ -218,7 +213,7 @@ public class LegacyDagImpl extends IDag {
 			}
 		}
 
-		evaluateTriggerables(mainInstance, evalContext, applicable, rootRef);
+		return evaluateTriggerables(mainInstance, evalContext, applicable, rootRef);
 	}
 
 	/**
@@ -230,23 +225,23 @@ public class LegacyDagImpl extends IDag {
 	 *            that was changed.
 	 */
 	@Override
-	public void triggerTriggerables(FormInstance mainInstance,
+	public Collection<QuickTriggerable> triggerTriggerables(FormInstance mainInstance,
 			EvaluationContext evalContext, TreeReference ref,
-			boolean cascadeToChildrenOfGroupsWithRelevanceExpressions) {
+			boolean midSurvey) {
 		// turn unambiguous ref into a generic ref
 		TreeReference genericRef = ref.genericize();
 
 		// get conditions triggered by this node
 		ArrayList<QuickTriggerable> triggered = triggerIndex.get(genericRef);
 		if (triggered == null) {
-			return;
+			return Collections.emptySet();
 		}
 
 		ArrayList<QuickTriggerable> triggeredCopy = new ArrayList<QuickTriggerable>(
 				triggered);
 
 		// Evaluate all of the triggerables in our new List
-		evaluateTriggerables(mainInstance, evalContext, triggeredCopy, ref);
+		return evaluateTriggerables(mainInstance, evalContext, triggeredCopy, ref);
 	}
 
 	/**
@@ -255,16 +250,14 @@ public class LegacyDagImpl extends IDag {
 	 * directly triggered conditions, identifying which conditions should
 	 * further be triggered due to their update, and then dispatching all of the
 	 * evaluations.
-	 *
-	 * @param tv
+	 *  @param tv
 	 *            A list of all of the trigerrables directly triggered by the
 	 *            value changed
 	 * @param anchorRef
-	 *            The reference to original value that was updated
 	 */
-	private void evaluateTriggerables(FormInstance mainInstance,
-			EvaluationContext evalContext, ArrayList<QuickTriggerable> tv,
-			TreeReference anchorRef) {
+	private List<QuickTriggerable> evaluateTriggerables(FormInstance mainInstance,
+																				EvaluationContext evalContext, ArrayList<QuickTriggerable> tv,
+																				TreeReference anchorRef) {
 
 		// add all cascaded triggerables to queue
 		for (int i = 0; i < tv.size(); i++) {
@@ -294,13 +287,15 @@ public class LegacyDagImpl extends IDag {
 				evaluateTriggerable(mainInstance, evalContext, qt, anchorRef);
 			}
 		}
+
+		return tv;
 	}
 
 	/**
 	 * Step 3 in DAG cascade. evaluate the individual triggerable expressions
 	 * against the anchor (the value that changed which triggered recomputation)
 	 *
-	 * @param t
+	 * @param qt
 	 *            The triggerable to be updated
 	 * @param anchorRef
 	 *            The reference to the value which was changed.
@@ -320,35 +315,13 @@ public class LegacyDagImpl extends IDag {
 				qt.t.apply(mainInstance, ec, v.get(i));
 			}
 		} catch (Exception e) {
-			throw new WrappedException("Error evaluating field '"
+			throw new RuntimeException("Error evaluating field '"
 					+ contextRef.getNameLast() + "': " + e.getMessage(), e);
 		}
 	}
-	
-   public ValidateOutcome validate(FormEntryController formEntryControllerToBeValidated, boolean markCompleted) {
 
-      formEntryControllerToBeValidated.jumpToIndex(FormIndex.createBeginningOfFormIndex());
-
-      int event;
-      while ((event =
-            formEntryControllerToBeValidated.stepToNextEvent()) != FormEntryController.EVENT_END_OF_FORM) {
-          if (event != FormEntryController.EVENT_QUESTION) {
-              continue;
-          } else {
-              FormIndex formControllerToBeValidatedFormIndex = formEntryControllerToBeValidated.getModel().getFormIndex();
-
-              int saveStatus = 
-                    formEntryControllerToBeValidated.answerQuestion(formControllerToBeValidatedFormIndex,
-                          formEntryControllerToBeValidated.getModel().getQuestionPrompt().getAnswerValue(), true, markCompleted);
-              if (markCompleted && saveStatus != FormEntryController.ANSWER_OK) {
-                  // jump to the error
-               ValidateOutcome vo = new ValidateOutcome(formControllerToBeValidatedFormIndex,
-                     saveStatus);
-                  return vo;
-              }
-          }
-      }
-      return null;
-   }
-
+	@Override
+	public boolean shouldTrustPreviouslyCommittedAnswer() {
+		return false;
+	}
 }

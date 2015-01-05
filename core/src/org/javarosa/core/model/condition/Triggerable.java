@@ -20,9 +20,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
+import java.util.*;
 import java.util.List;
 import java.util.Set;
 
@@ -90,7 +88,7 @@ public abstract class Triggerable implements Externalizable {
 	 * updated by the result of this triggerable
 	 *
 	 */
-	private ArrayList<TreeReference> targets;
+	private List<TreeReference> targets;
 
 	/**
 	 * Current reference which is the "Basis" of the trigerrables being evaluated. This is the highest
@@ -138,9 +136,9 @@ public abstract class Triggerable implements Externalizable {
 
 	/**
 	 * Not for re-implementation, dispatches all of the evaluation
-	 * @param instance
+	 * @param mainInstance
 	 * @param parentContext
-	 * @param f
+	 * @param context
 	 */
 	public final List<EvaluationResult> apply (FormInstance mainInstance, EvaluationContext parentContext, TreeReference context) {
 		//The triggeringRoot is the highest level of actual data we can inquire about, but it _isn't_ necessarily the basis
@@ -175,7 +173,7 @@ public abstract class Triggerable implements Externalizable {
 		}
 	}
 
-	public ArrayList<TreeReference> getTargets () {
+	public List<TreeReference> getTargets () {
 		return targets;
 	}
 
@@ -306,28 +304,25 @@ public abstract class Triggerable implements Externalizable {
 	}
 
 	/**
-	 * Searches in the triggers of this Triggerables, trying to find one that is
-	 * contained in the given list of contextualized refs. If multiple are found then it returns the one
-	 * which is higher in the form tree.
+	 * Searches in the triggers of this Triggerable, trying to find the ones that are
+	 * contained in the given list of contextualized refs.
 	 *
-	 * @param firedAnchors a list of absolute refs
-	 * @return the higher-in-the-form element of the given list that matches in the list of triggers of this Triggerable.
+	 * @param firedAnchorsMap a map of absolute refs
+	 * @return a list of affected nodes.
 	 */
-	public TreeReference findAffectedTrigger(List<TreeReference> firedAnchors) {
-		TreeReference affectedTrigger = null;
+	public List<TreeReference> findAffectedTriggers(Map<TreeReference, List<TreeReference>> firedAnchorsMap) {
+		List<TreeReference> affectedTriggers = new ArrayList<TreeReference>(0);
 
 		Set<TreeReference> triggers = this.getTriggers();
 		for (TreeReference trigger : triggers) {
-			for (TreeReference firedAnchor : firedAnchors) {
-				TreeReference genericizedFiredAnchor = firedAnchor.genericize();
-				if (genericizedFiredAnchor.equals(trigger)) {
-					if (affectedTrigger == null || genericizedFiredAnchor.isParentOf(affectedTrigger, false)) {
-						affectedTrigger = firedAnchor;
-					}
-				}
+			List<TreeReference> firedAnchors = firedAnchorsMap.get(trigger.genericize());
+			if (firedAnchors == null) {
+				continue;
 			}
+			
+			affectedTriggers.addAll(firedAnchors);
 		}
 
-		return affectedTrigger;
+		return affectedTriggers;
 	}
 }

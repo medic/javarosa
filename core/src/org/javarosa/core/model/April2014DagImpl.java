@@ -17,16 +17,16 @@
 package org.javarosa.core.model;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
-import org.javarosa.core.log.WrappedException;
 import org.javarosa.core.model.FormDef.EvalBehavior;
 import org.javarosa.core.model.condition.Condition;
 import org.javarosa.core.model.condition.EvaluationContext;
 import org.javarosa.core.model.instance.FormInstance;
 import org.javarosa.core.model.instance.TreeElement;
 import org.javarosa.core.model.instance.TreeReference;
-import org.javarosa.form.api.FormEntryController;
 
 /**
  * The April 2014 eval logic as of javarosa-2014-04-29.jar (also applies to
@@ -73,12 +73,12 @@ public class April2014DagImpl extends IDag {
 
    @Override
    public void copyItemsetAnswer(FormInstance mainInstance, EvaluationContext evalContext,
-         TreeReference copyRef, TreeElement copyToElement, boolean cascadeToGroupChildren) {
+         TreeReference copyRef, TreeElement copyToElement, boolean midSurvey) {
 
       // trigger conditions that depend on the creation of this new node
-      triggerTriggerables(mainInstance, evalContext, copyRef, cascadeToGroupChildren);
+      triggerTriggerables(mainInstance, evalContext, copyRef, midSurvey);
       // initialize conditions for the node (and sub-nodes)
-      initializeTriggerables(mainInstance, evalContext, copyRef, cascadeToGroupChildren);
+      initializeTriggerables(mainInstance, evalContext, copyRef, midSurvey);
       // not 100% sure this will work since destRef is ambiguous as the last
       // step, but i think it's supposed to work
    }
@@ -161,12 +161,10 @@ public class April2014DagImpl extends IDag {
       //
 
       conditionRepeatTargetIndex.clear();
-      for (int i = 0; i < triggerablesDAG.size(); i++) {
-         QuickTriggerable qt = triggerablesDAG.get(i);
+      for (QuickTriggerable qt : triggerablesDAG) {
          if (qt.t instanceof Condition) {
-            ArrayList<TreeReference> targets = qt.t.getTargets();
-            for (int j = 0; j < targets.size(); j++) {
-               TreeReference target = targets.get(j);
+            List<TreeReference> targets = qt.t.getTargets();
+            for (TreeReference target : targets) {
                if (mainInstance.getTemplate(target) != null) {
                   conditionRepeatTargetIndex.put(target, qt);
                }
@@ -181,7 +179,7 @@ public class April2014DagImpl extends IDag {
     * Get all of the elements which will need to be evaluated (in order) when
     * the triggerable is fired.
     * 
-    * @param t
+    * @param qt
     */
    private void fillTriggeredElements(EvaluationContext evalContext, QuickTriggerable qt,
          ArrayList<QuickTriggerable> destination) {
@@ -258,8 +256,8 @@ public class April2014DagImpl extends IDag {
     */
 
    @Override
-   public void initializeTriggerables(FormInstance mainInstance, EvaluationContext evalContext,
-         TreeReference rootRef, boolean cascadeToGroupChildren) {
+   public Collection<QuickTriggerable> initializeTriggerables(FormInstance mainInstance, EvaluationContext evalContext,
+         TreeReference rootRef, boolean midSurvey) {
       TreeReference genericRoot = rootRef.genericize();
 
       ArrayList<QuickTriggerable> applicable = new ArrayList<QuickTriggerable>();
@@ -274,7 +272,7 @@ public class April2014DagImpl extends IDag {
          }
       }
 
-      evaluateTriggerables(mainInstance, evalContext, applicable, rootRef);
+      return evaluateTriggerables(mainInstance, evalContext, applicable, rootRef);
    }
 
    /**
@@ -285,8 +283,8 @@ public class April2014DagImpl extends IDag {
     *           was changed.
     */
    @Override
-   public void triggerTriggerables(FormInstance mainInstance, EvaluationContext evalContext,
-         TreeReference ref, boolean cascadeToChildrenOfGroupsWithRelevanceExpressions) {
+   public Collection<QuickTriggerable> triggerTriggerables(FormInstance mainInstance, EvaluationContext evalContext,
+         TreeReference ref, boolean midSurvey) {
       // turn unambiguous ref into a generic ref
       // to identify what nodes should be triggered by this
       // reference changing
@@ -295,13 +293,13 @@ public class April2014DagImpl extends IDag {
       // get triggerables which are activated by the generic reference
       ArrayList<QuickTriggerable> triggered = triggerIndex.get(genericRef);
       if (triggered == null) {
-         return;
+         return Collections.emptySet();
       }
 
       ArrayList<QuickTriggerable> triggeredCopy = new ArrayList<QuickTriggerable>(triggered);
 
       // Evaluate all of the triggerables in our new list
-      evaluateTriggerables(mainInstance, evalContext, triggeredCopy, ref);
+      return evaluateTriggerables(mainInstance, evalContext, triggeredCopy, ref);
    }
 
    /**
@@ -317,7 +315,7 @@ public class April2014DagImpl extends IDag {
     * @param anchorRef
     *           The reference to original value that was updated
     */
-   private void evaluateTriggerables(FormInstance mainInstance, EvaluationContext evalContext,
+   private Collection<QuickTriggerable> evaluateTriggerables(FormInstance mainInstance, EvaluationContext evalContext,
          ArrayList<QuickTriggerable> tv, TreeReference anchorRef) {
       // add all cascaded triggerables to queue
 
@@ -338,13 +336,15 @@ public class April2014DagImpl extends IDag {
             evaluateTriggerable(mainInstance, evalContext, qt, anchorRef);
          }
       }
+
+      return tv;
    }
 
    /**
     * Step 3 in DAG cascade. evaluate the individual triggerable expressions
     * against the anchor (the value that changed which triggered recomputation)
     *
-    * @param t
+    * @param qt
     *           The triggerable to be updated
     * @param anchorRef
     *           The reference to the value which was changed.
@@ -368,36 +368,13 @@ public class April2014DagImpl extends IDag {
             qt.t.apply(mainInstance, ec, v.get(i));
          }
       } catch (Exception e) {
-         throw new WrappedException("Error evaluating field '" + contextRef.getNameLast() + "': "
+         throw new RuntimeException("Error evaluating field '" + contextRef.getNameLast() + "': "
                + e.getMessage(), e);
       }
    }
 
-   public ValidateOutcome validate(FormEntryController formEntryControllerToBeValidated,
-         boolean markCompleted) {
-
-      formEntryControllerToBeValidated.jumpToIndex(FormIndex.createBeginningOfFormIndex());
-
-      int event;
-      while ((event = formEntryControllerToBeValidated.stepToNextEvent()) != FormEntryController.EVENT_END_OF_FORM) {
-         if (event != FormEntryController.EVENT_QUESTION) {
-            continue;
-         } else {
-            FormIndex formControllerToBeValidatedFormIndex = formEntryControllerToBeValidated
-                  .getModel().getFormIndex();
-
-            int saveStatus = formEntryControllerToBeValidated.answerQuestion(
-                  formControllerToBeValidatedFormIndex, formEntryControllerToBeValidated.getModel()
-                        .getQuestionPrompt().getAnswerValue(), true, markCompleted);
-            if (markCompleted && saveStatus != FormEntryController.ANSWER_OK) {
-               // jump to the error
-               ValidateOutcome vo = new ValidateOutcome(formControllerToBeValidatedFormIndex,
-                     saveStatus);
-               return vo;
-            }
-         }
-      }
-      return null;
+   @Override
+   public boolean shouldTrustPreviouslyCommittedAnswer() {
+      return false;
    }
-
 }
