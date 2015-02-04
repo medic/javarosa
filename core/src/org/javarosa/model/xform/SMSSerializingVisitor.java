@@ -133,8 +133,8 @@ public class SMSSerializingVisitor implements IInstanceSerializingVisitor {
 	public void visit(FormInstance tree) {
 		nodeSet = new String();
 
-		//TreeElement root = tree.getRoot();
-		TreeElement root = tree.resolveReference(rootRef);
+		TreeElement root = tree.getRoot();
+		// TreeElement root = tree.resolveReference(rootRef);
 
 		xmlns = root.getAttributeValue("", "xmlns");
 		delimiter = root.getAttributeValue("", "delimiter");
