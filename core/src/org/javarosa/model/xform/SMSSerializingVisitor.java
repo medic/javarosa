@@ -44,6 +44,7 @@ public class SMSSerializingVisitor implements IInstanceSerializingVisitor {
 
 	private String theSmsStr = null; // sms string to be returned
 	private String nodeSet = null; // which nodeset the sms contents are in
+	private String instanceID = null;
 	private String xmlns = null;
 	private String delimiter = null;
 	private String prefix = null;
@@ -136,6 +137,7 @@ public class SMSSerializingVisitor implements IInstanceSerializingVisitor {
 		TreeElement root = tree.getRoot();
 		// TreeElement root = tree.resolveReference(rootRef);
 
+		instanceID = root.getAttributeValue("", "id");
 		xmlns = root.getAttributeValue("", "xmlns");
 		delimiter = root.getAttributeValue("", "delimiter");
 		if ( delimiter == null ) {
@@ -144,9 +146,10 @@ public class SMSSerializingVisitor implements IInstanceSerializingVisitor {
 		}
 		prefix = root.getAttributeValue("", "prefix");
 
+		instanceID = (instanceID != null)? instanceID : "unknown";
 		xmlns = (xmlns != null)? xmlns : " ";
 		delimiter = (delimiter != null ) ? delimiter : "#";
-		prefix = (prefix != null) ? prefix : " ";
+		prefix = (prefix != null) ? prefix : "J1!"+instanceID+"!";
 
 		//Don't bother adding any delimiters, yet. Delimiters are
 		//added before tags/data
@@ -194,6 +197,12 @@ public class SMSSerializingVisitor implements IInstanceSerializingVisitor {
 				String tag = instanceNode.getAttributeValue("", "tag");
 				if ( tag != null ) {
 					b.append(tag);
+				}
+				else {
+					String name = instanceNode.getName();
+					if ( name != null ) {
+						b.append(name);
+					}
 				}
 				b.append(delimiter);
 
