@@ -145,7 +145,7 @@ public class SMSSerializingVisitor implements IInstanceSerializingVisitor {
 		prefix = root.getAttributeValue("", "prefix");
 
 		xmlns = (xmlns != null)? xmlns : " ";
-		delimiter = (delimiter != null ) ? delimiter : " ";
+		delimiter = (delimiter != null ) ? delimiter : "#";
 		prefix = (prefix != null) ? prefix : " ";
 
 		//Don't bother adding any delimiters, yet. Delimiters are
